@@ -1,0 +1,207 @@
+---
+title: "Models"
+output: html_notebook
+---
+
+```{r}
+library(lme4)
+library(lmerTest)
+library(simr)
+library(dplyr)
+library(ggplot2)
+library(ggeffects)
+library(sjPlot)
+library(emmeans)
+library(performance)
+library(partR2)
+library(effectsize)
+library(relaimpo)
+
+source('scripts/startAnalysis.R')
+```
+
+Descriptive statistics
+```{r}
+df_withoutLength %>%
+  group_by(task, layout, orientation) %>%
+  summarise(
+    mean_rt = mean(duration, na.rm = TRUE),
+    sd_rt = sd(duration, na.rm = TRUE),
+    n = n()
+  ) %>%
+  arrange(task, layout)
+```
+
+
+We first look at the base model.
+
+```{r}
+m_base <- lmerTest::lmer(duration ~ taskCode*layoutCode*orientationCode 
+                         + (1 + layoutCode*orientationCode | participant_id), data = df_withoutLength)
+summary(m_base)
+```
+
+
+We found a significant 3-way interaction between task, orientation, and layout. Therefore, we divide the model by task and analyze them separately.
+
+Effect of orientation and layout in height task:
+```{r}
+m_height <- lmerTest::lmer(duration ~ layoutCode*orientationCode 
+                         + (1 + layoutCode*orientationCode | participant_id), 
+                         data = df_withoutLength %>% filter(task == "compare_height"))
+summary(m_height)
+
+m_height_vertical <- lmerTest::lmer(duration ~ layoutCode
+                         + (1 + layoutCode | participant_id), 
+                         data = df_withoutLength %>% filter(task == "compare_height" & orientation == "vertical"))
+summary(m_height_vertical)
+
+m_height_horizontal <- lmerTest::lmer(duration ~ layoutCode
+                         + (1 + layoutCode | participant_id), 
+                         data = df_withoutLength %>% filter(task == "compare_height" & orientation == "horizontal"))
+summary(m_height_horizontal)
+
+m_height_stacked <- lmerTest::lmer(duration ~ orientationCode
+                         + (1 + orientationCode | participant_id), 
+                         data = df_withoutLength %>% filter(task == "compare_height" & layout == "stacked"))
+summary(m_height_stacked)
+
+m_height_side <- lmerTest::lmer(duration ~ orientationCode
+                         + (1 + orientationCode | participant_id), 
+                         data = df_withoutLength %>% filter(task == "compare_height" & layout == "side-by-side"))
+summary(m_height_side)
+```
+
+Within the height task, layout interacted with orientation, such that RTs were significanlty faster for the horizontal layout when the bars were oriented vertically than when they were oriented horizontally. Within the virtical layout, RTs were faster when the bars were oriented horizontally rather than vertically. Taken together, these results are consistent with a congruence effect between axis of alignment and task
+
+Effect of layout and bar orientation on index task:
+```{r}
+m_index <- lmerTest::lmer(duration ~ layoutCode*orientationCode
+                         + (1 + layoutCode*orientationCode | participant_id), 
+                         data = df_withoutLength %>% filter(task == "compare_index"))
+summary(m_index)
+
+m_index_h <- lmerTest::lmer(duration ~ layoutCode
+                         + (1 + layoutCode | participant_id), 
+                         data = df_withoutLength %>% filter(task == "compare_index" & orientation == "horizontal"))
+summary(m_index_h)
+
+m_index_v <- lmerTest::lmer(duration ~ layoutCode
+                         + (1 + layoutCode | participant_id), 
+                         data = df_withoutLength %>% filter(task == "compare_index" & orientation == "vertical"))
+summary(m_index_v)
+
+m_index_stacked <- lmerTest::lmer(duration ~ orientationCode
+                         + (1 + orientationCode | participant_id), 
+                         data = df_withoutLength %>% filter(task == "compare_index" & layout == "stacked"))
+summary(m_index_stacked)
+
+m_index_side <- lmerTest::lmer(duration ~ orientationCode
+                         + (1 + orientationCode | participant_id), 
+                         data = df_withoutLength %>% filter(task == "compare_index" & layout == "side-by-side"))
+summary(m_index_side)
+```
+
+Within the index task, layout interacted with orientation, such that RTs were significantly faster for the side-by-side layout when the bars were oriented horizontally than when they were oriented vertically. Within the stacked layout, RTs were faster when the bars were oriented vertically rather than horizontally. Taken together, these results are consistent with a congruence effect between axis of alignment and task.
+
+Model for the secondary hypothesis. We code alignment as a latent variable emerging from task*layout*orientation and see how it captures variance beyond layout and orientation.
+```{r}
+m_base_alignment <- lmerTest::lmer(duration ~
+                                    layoutCode + orientationCode + alignmentCode
+                                  + (1 + layoutCode + orientationCode + alignmentCode | participant_id),
+                                  data=df_withoutLength)
+summary(m_base_alignment)
+```
+
+# Interference
+```{r}
+m_answerSide <- lmerTest::lmer(duration ~ 
+                      taskCode*layoutCode*orientationCode + answerSideCode + (1 + layoutCode*orientationCode + answerSideCode | participant_id),
+                    data=df_withoutLength)
+summary(m_answerSide)
+plot_model(m_answerSide, ci.lvl=0.95)
+
+m_int <- lmerTest::lmer(duration ~ 
+                      taskCode*layoutCode*orientationCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerLaterCode + isAnswerHigherCode
+                    + (1 + layoutCode*orientationCode + answerSide | participant_id),  control = lmerControl(optimizer = "bobyqa"),
+                    data=df_withoutLength)
+summary(m_int)
+plot_model(m_int, ci.lvl=0.95)
+
+m_int_height <- lmerTest::lmer(duration ~ 
+                      layoutCode*orientationCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerLaterCode
+                    + (1 + layoutCode*orientationCode + answerSideCode | participant_id),
+                    data=df_withoutLength %>% filter(task == "compare_height"))
+summary(m_int_height)
+
+m_int_index <- lmerTest::lmer(duration ~ 
+                      layoutCode*orientationCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerHigherCode
+                    + (1 + layoutCode*orientationCode + answerSideCode | participant_id),
+                    data=df_withoutLength %>% filter(task == "compare_index"))
+summary(m_int_index)
+
+m_int_height_h <- lmerTest::lmer(duration ~ 
+                      layoutCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerLaterCode
+                    + (1 + layoutCode | participant_id),
+                    data=df_withoutLength %>% filter(task == "compare_height", orientation == "horizontal"))
+summary(m_int_height_h)
+
+m_int_height_v <- lmerTest::lmer(duration ~ 
+                      layoutCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerLaterCode
+                    + (1 + layoutCode | participant_id),
+                    data=df_withoutLength %>% filter(task == "compare_height", orientation == "vertical"))
+summary(m_int_height_v)
+
+m_int_index_h <- lmerTest::lmer(duration ~ 
+                      layoutCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerHigherCode
+                    + (1 + layoutCode | participant_id),
+                    data=df_withoutLength %>% filter(task == "compare_index", orientation == "horizontal"))
+summary(m_int_index_h)
+
+m_int_index_v <- lmerTest::lmer(duration ~ 
+                      layoutCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerHigherCode
+                    + (1 + layoutCode | participant_id),
+                    data=df_withoutLength %>% filter(task == "compare_index", orientation == "vertical"))
+summary(m_int_index_v)
+
+m_int_height_stacked <- lmerTest::lmer(duration ~ 
+                      orientationCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerLaterCode
+                    + (1 + orientationCode | participant_id),
+                    data=df_withoutLength %>% filter(task == "compare_height", layout == "stacked"))
+summary(m_int_height_stacked)
+
+m_int_height_side <- lmerTest::lmer(duration ~ 
+                      orientationCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerLaterCode
+                    + (1 + orientationCode | participant_id),
+                    data=df_withoutLength %>% filter(task == "compare_height", layout == "side-by-side"))
+summary(m_int_height_side)
+
+m_int_index_stacked <- lmerTest::lmer(duration ~ 
+                      orientationCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerHigherCode
+                    + (1 + orientationCode | participant_id),
+                    data=df_withoutLength %>% filter(task == "compare_index", layout == "stacked"))
+summary(m_int_index_stacked)
+
+m_int_index_side <- lmerTest::lmer(duration ~ 
+                      orientationCode + answerSideCode + isAnswerLongerCode + isAnswerDarkerCode + isAnswerHigherCode
+                    + (1 + orientationCode | participant_id),
+                    data=df_withoutLength %>% filter(task == "compare_index", layout == "side-by-side"))
+summary(m_int_index_side)
+```
+
+LMG analysis to compare importance of factors:
+```{r}
+linearModel <- lm(duration ~ layoutCode + orientationCode + alignmentCode, data = df_withoutLength)
+calc.relimp(linearModel, type = "lmg", rela = TRUE)
+```
+
+Using "alignment" as an explicit factor to find evidence for the secondary hypothesis:
+```{r}
+m_base_alignment <- lmerTest::lmer(duration ~ layoutCode + orientationCode + alignmentCode
+                         + (1 + layoutCode + orientationCode + alignmentCode | participant_id), data = df_withoutLength)
+summary(m_base_alignment)
+
+m_base_alignment_withTask <- lmerTest::lmer(duration ~ taskCode + layoutCode + orientationCode + alignmentCode
+                         + (1 + layoutCode + orientationCode + alignmentCode | participant_id), data = df_withoutLength)
+summary(m_base_alignment_withTask)
+```
